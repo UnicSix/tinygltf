@@ -320,6 +320,7 @@ TINYGLTF3_API int32_t  tg3_errors_has_error(const tg3_error_stack *es);
 TINYGLTF3_API uint32_t tg3_errors_count(const tg3_error_stack *es);
 TINYGLTF3_API const tg3_error_entry *tg3_errors_get(const tg3_error_stack *es,
                                                      uint32_t index);
+TINYGLTF3_API const char* tg3_severity_str(tg3_severity severity);
 
 /* ======================================================================
  * Section 8: Generic Value Type (for extras/extensions)
@@ -1470,6 +1471,17 @@ TINYGLTF3_API void tg3_error_stack_free(tg3_error_stack *es) {
     if (!es) return;
     free(es->entries);
     memset(es, 0, sizeof(tg3_error_stack));
+}
+
+TINYGLTF3_API const char* tg3_severity_str(tg3_severity severity) {
+  switch (severity) {
+    case TG3_SEVERITY_INFO:
+      return "[TG3 INFO]:";
+    case TG3_SEVERITY_WARNING:
+      return "[TG3 WARNING]:";
+    case TG3_SEVERITY_ERROR:
+      return "[TG3 ERROR]:";
+  }
 }
 
 /* ======================================================================
