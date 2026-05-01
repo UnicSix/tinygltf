@@ -1,3 +1,4 @@
+// clang-format off
 /*
  * tiny_gltf_v3.h - Header-only C glTF 2.0 loader and writer (v3)
  *
@@ -2458,6 +2459,27 @@ static int tg3__parse_image(tg3__parse_ctx *ctx, const tg3__json &o,
     if (ctx->opts.images_as_is) {
         img->as_is = 1;
     }
+
+    // clang-format on
+  {
+    uint64_t out_size;
+    uint8_t* out_data;
+    tg3__load_external_file(ctx, &out_data, &out_size, img->uri.data,
+                            img->uri.len);
+
+    tg3_image_request request = {
+        .data = out_data,
+        .data_size = out_size,
+        .mime_type = img->mime_type.data,
+    };
+    tg3_image_result result = {0};
+    ctx->opts.image.load_image(&result, &request, (void*)&ctx->opts);
+
+    if (ctx->opts.images_as_is) {
+      img->as_is = 1;
+    }
+  }
+// clang-format off
 
     tg3__parse_extras_and_extensions(ctx, o, &img->ext);
     return 1;
