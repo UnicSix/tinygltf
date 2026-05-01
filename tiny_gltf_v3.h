@@ -1236,14 +1236,14 @@ ParseGenerator tg3_parse_coro(
 #endif
 
 /* Include JSON parser */
+#include <math.h>
+#include <stdio.h>
+
 #include "tinygltf_json.h"
 
-#include <stdio.h>
-#include <math.h>
-
 /* Implementation uses C++ features from tinygltf_json.h */
-#include <string>
 #include <algorithm>
+#include <string>
 
 /* Forward SIMD macros to tinygltf_json.h */
 #ifdef TINYGLTF3_JSON_SIMD_SSE2
@@ -2461,25 +2461,25 @@ static int tg3__parse_image(tg3__parse_ctx *ctx, const tg3__json &o,
     }
 
     // clang-format on
-  {
-    uint64_t out_size;
-    uint8_t* out_data;
-    tg3__load_external_file(ctx, &out_data, &out_size, img->uri.data,
-                            img->uri.len);
+    {
+        uint64_t out_size;
+        uint8_t* out_data;
+        tg3__load_external_file(ctx, &out_data, &out_size, img->uri.data,
+                                img->uri.len);
 
-    tg3_image_request request = {
-        .data = out_data,
-        .data_size = out_size,
-        .mime_type = img->mime_type.data,
-    };
-    tg3_image_result result = {0};
-    ctx->opts.image.load_image(&result, &request, (void*)&ctx->opts);
+        tg3_image_request request = {
+            .data = out_data,
+            .data_size = out_size,
+            .mime_type = img->mime_type.data,
+        };
+        tg3_image_result result = {0};
+        ctx->opts.image.load_image(&result, &request, (void*)&ctx->opts);
 
-    if (ctx->opts.images_as_is) {
-      img->as_is = 1;
+        if (ctx->opts.images_as_is) {
+            img->as_is = 1;
+        }
     }
-  }
-// clang-format off
+    // clang-format off
 
     tg3__parse_extras_and_extensions(ctx, o, &img->ext);
     return 1;
@@ -3360,6 +3360,163 @@ static void tg3__set_default_fs(tg3_fs_callbacks *fs) {
 
 #endif /* TINYGLTF3_ENABLE_FS */
 
+// clang-format on
+/* ======================================================================
+ * Optional: Default STB IMAGE Callbacks
+ * ====================================================================== */
+
+#ifdef TINYGLTF3_ENABLE_STB_IMAGE
+static int32_t tg3__stb_load_image_data(tg3_image_result* result,
+                                        const tg3_image_request* request,
+                                        void* user_data) {
+    tg3_parse_options option;
+    tg3__parse_ctx ctx;
+    if (user_data) {
+        ctx = *static_cast<tg3__parse_ctx*>(user_data);
+        option = ctx.opts;
+    }
+
+    int w = 0, h = 0, comp = 0, req_comp = 0;
+
+    // Try to decode image header
+    if (!stbi_info_from_memory(request->data, (int)request->data_size, &w, &h,
+                               &comp)) {
+        // On failure, if we load images as is, we just warn.
+        if (option.images_as_is) {
+            tg3__error_pushf(
+                ctx.errors, ctx.arena, TG3_SEVERITY_WARNING,
+                TG3_ERR_IMAGE_DECODE, "",
+                "Unknown image format. STB cannot decode image header "
+                "for image[%d] name = %s.\n");
+        }
+        if (!option.images_as_is) {
+            // If we decode images, error out.
+            return false;
+        } else {
+            // If we load images as is, we copy the image data,
+            // set all image properties to invalid, and report success.
+            result->width = result->height = result->component = -1;
+            result->bits = result->pixel_type = -1;
+            // image->image.resize(static_cast<size_t>(size));
+            // std::copy(bytes, bytes + size, image->image.begin());
+            return true;
+        }
+    }
+
+    int bits = 8;
+    int pixel_type = TG3_COMPONENT_TYPE_UNSIGNED_BYTE;
+
+    if (stbi_is_16_bit_from_memory(request->data, request->data_size)) {
+        bits = 16;
+        pixel_type = TG3_COMPONENT_TYPE_UNSIGNED_SHORT;
+    }
+
+    // preserve_channels true: Use channels stored in the image file.
+    // false: force 32-bit textures for common Vulkan compatibility. It appears
+    // that some GPU drivers do not support 24-bit images for Vulkan
+    req_comp = (option.preserve_image_channels || option.images_as_is) ? 0 : 4;
+
+    unsigned char* data = nullptr;
+    // Perform image decoding if requested
+    if (!option.images_as_is) {
+        // If the image is marked as 16 bit per channel, attempt to decode it as
+        // such first. If that fails, we are going to attempt to load it as 8
+        // bit per channel image.
+        if (bits == 16) {
+            data = reinterpret_cast<unsigned char*>(stbi_load_16_from_memory(
+                request->data, request->data_size, &w, &h, &comp, req_comp));
+        }
+        // Load as 8 bit per channel data
+        if (!data) {
+            data = stbi_load_from_memory(request->data, request->data_size, &w,
+                                         &h, &comp, req_comp);
+            if (!data) {
+                tg3__error_pushf(
+                    ctx.errors, ctx.arena, TG3_SEVERITY_WARNING,
+                    TG3_ERR_IMAGE_DECODE, "",
+                    "Unknown image format. STB cannot decode image data "
+                    "for image[%d].\n",
+                    request->image_index);
+                // "Unknown image format. STB cannot decode image data for
+                // image[" + std::to_string(image_idx) + "] name = \"" +
+                // image->name + "\".\n";
+                return false;
+            }
+            // If we were succesful, mark as 8 bit
+            bits = 8;
+            pixel_type = TG3_COMPONENT_TYPE_UNSIGNED_BYTE;
+        }
+    }
+
+    if ((w < 1) || (h < 1)) {
+        stbi_image_free(data);
+        tg3__error_pushf(
+            ctx.errors, ctx.arena, TG3_SEVERITY_WARNING, TG3_ERR_IMAGE_DECODE,
+            "", "Invalid image data for image[%d].\n", request->image_index);
+        return false;
+    }
+
+    if (request->req_width > 0) {
+        if (request->req_width != w) {
+            stbi_image_free(data);
+            tg3__error_pushf(ctx.errors, ctx.arena, TG3_SEVERITY_WARNING,
+                             TG3_ERR_IMAGE_DECODE, "",
+                             "Image width mismatch for image[%d].\n",
+                             request->image_index);
+            return false;
+        }
+    }
+
+    if (request->req_height > 0) {
+        if (request->req_height != h) {
+            stbi_image_free(data);
+            tg3__error_pushf(ctx.errors, ctx.arena, TG3_SEVERITY_WARNING,
+                             TG3_ERR_IMAGE_DECODE, "",
+                             "Image height mismatch for image[%d].\n",
+                             request->image_index);
+            return false;
+        }
+    }
+
+    if (req_comp != 0) {
+        // loaded data has `req_comp` channels(components)
+        comp = req_comp;
+    }
+
+    result->width = w;
+    result->height = h;
+    result->component = comp;
+    result->bits = bits;
+    result->pixel_type = pixel_type;
+    // image->as_is = option.as_is;
+
+    if (option.images_as_is) {
+        result->pixels = (uint8_t*)request->data;
+        // Store the original image data
+        // image->image.resize(static_cast<size_t>(size));
+        // std::copy(bytes, bytes + size, image->image.begin());
+    } else {
+        // TODO: Store the decoded image data
+        // image->image.resize(static_cast<size_t>(w * h * comp) * size_t(bits /
+        // 8)); std::copy(data, data + w * h * comp * (bits / 8),
+        // image->image.begin());
+    }
+
+    stbi_image_free(data);
+    return true;
+}
+
+static void tg3__stb_free_image_data(uint8_t* pixels, void* user_data) {}
+
+static void tg3__set_default_image_callbacks(tg3_image_callbacks* image) {
+    image->load_image = tg3__stb_load_image_data;
+    image->free_image = tg3__stb_free_image_data;
+}
+
+#endif /* TINYGLTF3_ENABLE_STB_IMAGE */
+       // clang-format off
+
+
 /* ======================================================================
  * Internal: Model Init Helper
  * ====================================================================== */
@@ -3526,6 +3683,9 @@ TINYGLTF3_API tg3_error_code tg3_parse_file(
 
 #ifdef TINYGLTF3_ENABLE_FS
     tg3__set_default_fs(&opts.fs);
+#endif
+#ifdef TINYGLTF3_ENABLE_STB_IMAGE
+    tg3__set_default_image_callbacks(&opts.image);
 #endif
 
     if (!opts.fs.read_file) {
