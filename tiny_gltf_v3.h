@@ -89,6 +89,15 @@
 #define TINYGLTF3_ASSERT(x) assert(x)
 #endif
 
+/* STB headers */
+#ifdef TINYGLTF3_ENABLE_STB_IMAGE
+#include "stb_image.h"
+#endif
+
+#ifdef TINYGLTF3_ENABLE_STB_IMAGE_WRITE
+#include "stb_image_write.h"
+#endif
+
 /* ======================================================================
  * Section 3: C Includes
  * ====================================================================== */
