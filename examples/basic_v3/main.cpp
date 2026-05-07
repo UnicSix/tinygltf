@@ -37,8 +37,6 @@ bool loadModel(tg3_model& model, const char* filename) {
                     tg3_severity_str(err_stack.entries[i].severity),
                     err_stack.entries[i].message);
     }
-    fprintf(stdout, "Image count: %d\n", model.images_count);
-    assert(model.images[0].image.count != 0);
 
     tg3_error_stack_free(&err_stack);
     return (err_code == TG3_OK);
