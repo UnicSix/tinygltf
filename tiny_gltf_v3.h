@@ -2444,7 +2444,7 @@ static int tg3__parse_buffer_view(tg3__parse_ctx *ctx, const tg3__json &o,
 }
 
 static int tg3__parse_image(tg3__parse_ctx *ctx, const tg3__json &o,
-                             tg3_image *img, int32_t /*img_idx*/) {
+                             tg3_image *img, int32_t img_idx) {
     memset(img, 0, sizeof(tg3_image));
     img->width = -1;
     img->height = -1;
@@ -2463,7 +2463,7 @@ static int tg3__parse_image(tg3__parse_ctx *ctx, const tg3__json &o,
     }
 
     // clang-format on
-    if (!ctx->opts.image.load_image) {
+    if (ctx->opts.image.load_image) {
         uint64_t out_size;
         uint8_t* out_data;
         tg3__load_external_file(ctx, &out_data, &out_size, img->uri.data,
@@ -2472,28 +2472,20 @@ static int tg3__parse_image(tg3__parse_ctx *ctx, const tg3__json &o,
         tg3_image_request request = {
             .data = out_data,
             .data_size = out_size,
+            .image_index = img_idx,
             .mime_type = img->mime_type.data,
         };
         tg3_image_result result = {0};
-        ctx->opts.image.load_image(&result, &request, (void*)&ctx->opts);
-
-        // typedef struct tg3_image_result {
-        //     uint8_t  *pixels;     /* Caller must allocate */
-        //     int32_t   width;
-        //     int32_t   height;
-        //     int32_t   component;
-        //     int32_t   bits;
-        //     int32_t   pixel_type;
-        // } tg3_image_result;
-
-        /* TODO: Copy into arena */
-        // uint8_t* data =
-        //     (uint8_t*)tg3__arena_alloc(ctx->arena, (size_t)file_size);
-        // if (data) {
-        //     memcpy(data, file_data, (size_t)file_size);
-        //     buf->data.data = data;
-        //     buf->data.count = file_size;
-        // }
+        ctx->opts.image.load_image(&result, &request, (void*)ctx);
+        img->image.data = result.pixels;
+        img->image.count =
+            (uint64_t)(result.width * result.height * result.component) *
+            (uint64_t)(result.bits / 8);
+        img->width = result.width;
+        img->height = result.height;
+        img->component = result.component;
+        img->bits = result.bits;
+        img->pixel_type = result.pixel_type;
 
         /* Free file data via callback */
         ctx->opts.fs.free_file(out_data, out_size, ctx->opts.fs.user_data);
@@ -3514,13 +3506,16 @@ static int32_t tg3__stb_load_image_data(tg3_image_result* result,
         uint8_t* arena_data =
             (uint8_t*)tg3__arena_alloc(ctx.arena, (size_t)request->data_size);
         if (arena_data) {
-            memcpy(arena_data, &request->data, request->data_size);
+            memcpy(arena_data, request->data, request->data_size);
             result->pixels = arena_data;
         }
     } else {
+        // alloc return NULL while the arena->block is not null
         size_t data_size = (size_t)(w * h * comp) * (size_t)(bits / 8);
         uint8_t* arena_data = (uint8_t*)tg3__arena_alloc(ctx.arena, data_size);
+        assert(arena_data);
         memcpy(arena_data, stbi_data, data_size);
+        result->pixels = arena_data;
     }
 
     stbi_image_free(stbi_data);
