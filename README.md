@@ -33,11 +33,11 @@ Copy `tiny_gltf_v3.h` and `tinygltf_json.h` to your project. In **one** `.cpp` f
 Loading a glTF file:
 
 ```c
-tg3_parse_options opts;
+tg3_parse_options opts = {0};
 tg3_error_stack errors = {0};
 tg3_parse_options_init(&opts);
 tg3_error_stack_init(&err_stack);
-tg3_model_t *model = tg3_load_from_file("scene.gltf", &opts, &errors);
+tg3_model_t *model;
 tg3_error_code err_code =
       tg3_parse_file(&model, &err_stack, filename, strlen(filename), &opts);
 if (err_code != TG3_OK) {
