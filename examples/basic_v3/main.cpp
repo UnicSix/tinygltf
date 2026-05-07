@@ -23,12 +23,6 @@
 
 #define BUFFER_OFFSET(i) ((char*)NULL + (i))
 
-static const char* tg3_severity_str[(size_t)TG3_SEVERITY_ERROR + 1] = {
-    "TG3_INFO",
-    "TG3_WARNING",
-    "TG3_ERROR",
-};
-
 bool loadModel(tg3_model& model, const char* filename) {
   tg3_error_stack err_stack;
   tg3_parse_options opts;
@@ -40,7 +34,7 @@ bool loadModel(tg3_model& model, const char* filename) {
   if (err_code != TG3_OK) {
     for (int i = 0; i < err_stack.count; i++)
       fprintf(stderr, "[%s] %s\n",
-              tg3_severity_str[err_stack.entries[i].severity],
+              tg3_severity_str(err_stack.entries[i].severity),
               err_stack.entries[i].message);
   }
   fprintf(stdout, "Image count: %d\n", model.images_count);
