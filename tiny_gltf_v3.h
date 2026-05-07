@@ -1,4 +1,3 @@
-// clang-format off
 /*
  * tiny_gltf_v3.h - Header-only C glTF 2.0 loader and writer (v3)
  *
@@ -2462,7 +2461,6 @@ static int tg3__parse_image(tg3__parse_ctx *ctx, const tg3__json &o,
         img->as_is = 1;
     }
 
-    // clang-format on
     if (ctx->opts.image.load_image) {
         uint64_t out_size;
         uint8_t* out_data;
@@ -2490,7 +2488,6 @@ static int tg3__parse_image(tg3__parse_ctx *ctx, const tg3__json &o,
         /* Free file data via callback */
         ctx->opts.fs.free_file(out_data, out_size, ctx->opts.fs.user_data);
     }
-    // clang-format off
 
     tg3__parse_extras_and_extensions(ctx, o, &img->ext);
     return 1;
@@ -3371,7 +3368,6 @@ static void tg3__set_default_fs(tg3_fs_callbacks *fs) {
 
 #endif /* TINYGLTF3_ENABLE_FS */
 
-// clang-format on
 /* ======================================================================
  * Optional: Default STB IMAGE Callbacks
  * ====================================================================== */
@@ -3530,7 +3526,6 @@ static void tg3__set_default_image_callbacks(tg3_image_callbacks* image) {
 }
 
 #endif /* TINYGLTF3_ENABLE_STB_IMAGE */
-       // clang-format off
 
 
 /* ======================================================================
