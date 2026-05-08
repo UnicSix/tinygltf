@@ -2461,7 +2461,7 @@ static int tg3__parse_image(tg3__parse_ctx *ctx, const tg3__json &o,
         img->as_is = 1;
     }
 
-    if (ctx->opts.image.load_image) {
+    if (ctx->opts.image.load_image && img->buffer_view == -1) {
         uint64_t out_size;
         uint8_t* out_data;
         tg3__load_external_file(ctx, &out_data, &out_size, img->uri.data,
@@ -2487,6 +2487,9 @@ static int tg3__parse_image(tg3__parse_ctx *ctx, const tg3__json &o,
 
         /* Free file data via callback */
         ctx->opts.fs.free_file(out_data, out_size, ctx->opts.fs.user_data);
+    }
+    else {
+      // TODO: buffer_view != -1
     }
 
     tg3__parse_extras_and_extensions(ctx, o, &img->ext);
@@ -3381,6 +3384,11 @@ static int32_t tg3__stb_load_image_data(tg3_image_result* result,
     if (user_data) {
         ctx = *static_cast<tg3__parse_ctx*>(user_data);
         option = ctx.opts;
+    } else {
+        tg3__error_pushf(ctx.errors, ctx.arena, TG3_SEVERITY_ERROR,
+                         TG3_ERR_INVALID_VALUE, NULL,
+                         "Missing user data for loading image data");
+        return false;
     }
 
     int w = 0, h = 0, comp = 0, req_comp = 0;
@@ -3392,21 +3400,37 @@ static int32_t tg3__stb_load_image_data(tg3_image_result* result,
         if (option.images_as_is) {
             tg3__error_pushf(
                 ctx.errors, ctx.arena, TG3_SEVERITY_WARNING,
-                TG3_ERR_IMAGE_DECODE, "",
+                TG3_ERR_IMAGE_DECODE, NULL,
                 "Unknown image format. STB cannot decode image header "
-                "for image[%d] name = %s.\n");
-        }
-        if (!option.images_as_is) {
-            // If we decode images, error out.
-            return false;
-        } else {
+                "for image[%d].\n",
+                request->image_index);
+
             // If we load images as is, we copy the image data,
             // set all image properties to invalid, and report success.
             result->width = result->height = result->component = -1;
             result->bits = result->pixel_type = -1;
-            // image->image.resize(static_cast<size_t>(size));
-            // std::copy(bytes, bytes + size, image->image.begin());
-            return true;
+
+            uint8_t* arena_data = (uint8_t*)tg3__arena_alloc(
+                ctx.arena, (size_t)request->data_size);
+            if (arena_data) {
+                memcpy(arena_data, request->data, request->data_size);
+                result->pixels = arena_data;
+                return true;
+            } else {
+                tg3__error_pushf(
+                    ctx.errors, ctx.arena, TG3_SEVERITY_ERROR,
+                    TG3_ERR_OUT_OF_MEMORY, NULL,
+                    "Failed to allocate memory to arena for image data");
+                return false;
+            }
+        } else {
+            tg3__error_pushf(
+                ctx.errors, ctx.arena, TG3_SEVERITY_ERROR, TG3_ERR_IMAGE_DECODE,
+                NULL,
+                "Unknown image format. STB cannot decode image header "
+                "for image[%d].\n",
+                request->image_index);
+            return false;
         }
     }
 
@@ -3441,13 +3465,10 @@ static int32_t tg3__stb_load_image_data(tg3_image_result* result,
             if (!stbi_data) {
                 tg3__error_pushf(
                     ctx.errors, ctx.arena, TG3_SEVERITY_WARNING,
-                    TG3_ERR_IMAGE_DECODE, "",
+                    TG3_ERR_IMAGE_DECODE, NULL,
                     "Unknown image format. STB cannot decode image data "
                     "for image[%d].\n",
                     request->image_index);
-                // "Unknown image format. STB cannot decode image data for
-                // image[" + std::to_string(image_idx) + "] name = \"" +
-                // image->name + "\".\n";
                 return false;
             }
             // If we were succesful, mark as 8 bit
@@ -3460,7 +3481,7 @@ static int32_t tg3__stb_load_image_data(tg3_image_result* result,
         stbi_image_free(stbi_data);
         tg3__error_pushf(
             ctx.errors, ctx.arena, TG3_SEVERITY_WARNING, TG3_ERR_IMAGE_DECODE,
-            "", "Invalid image data for image[%d].\n", request->image_index);
+            NULL, "Invalid image data for image[%d].\n", request->image_index);
         return false;
     }
 
@@ -3468,7 +3489,7 @@ static int32_t tg3__stb_load_image_data(tg3_image_result* result,
         if (request->req_width != w) {
             stbi_image_free(stbi_data);
             tg3__error_pushf(ctx.errors, ctx.arena, TG3_SEVERITY_WARNING,
-                             TG3_ERR_IMAGE_DECODE, "",
+                             TG3_ERR_IMAGE_DECODE, NULL,
                              "Image width mismatch for image[%d].\n",
                              request->image_index);
             return false;
@@ -3479,7 +3500,7 @@ static int32_t tg3__stb_load_image_data(tg3_image_result* result,
         if (request->req_height != h) {
             stbi_image_free(stbi_data);
             tg3__error_pushf(ctx.errors, ctx.arena, TG3_SEVERITY_WARNING,
-                             TG3_ERR_IMAGE_DECODE, "",
+                             TG3_ERR_IMAGE_DECODE, NULL,
                              "Image height mismatch for image[%d].\n",
                              request->image_index);
             return false;
@@ -3504,14 +3525,26 @@ static int32_t tg3__stb_load_image_data(tg3_image_result* result,
         if (arena_data) {
             memcpy(arena_data, request->data, request->data_size);
             result->pixels = arena_data;
+        } else {
+            tg3__error_pushf(
+                ctx.errors, ctx.arena, TG3_SEVERITY_ERROR,
+                TG3_ERR_OUT_OF_MEMORY, NULL,
+                "Failed to allocate memory to arena for image data");
+            return false;
         }
     } else {
-        // alloc return NULL while the arena->block is not null
         size_t data_size = (size_t)(w * h * comp) * (size_t)(bits / 8);
         uint8_t* arena_data = (uint8_t*)tg3__arena_alloc(ctx.arena, data_size);
-        assert(arena_data);
-        memcpy(arena_data, stbi_data, data_size);
-        result->pixels = arena_data;
+        if (arena_data) {
+            memcpy(arena_data, stbi_data, data_size);
+            result->pixels = arena_data;
+        } else {
+            tg3__error_pushf(
+                ctx.errors, ctx.arena, TG3_SEVERITY_ERROR,
+                TG3_ERR_OUT_OF_MEMORY, NULL,
+                "Failed to allocate memory to arena for image data");
+            return false;
+        }
     }
 
     stbi_image_free(stbi_data);
@@ -3526,7 +3559,6 @@ static void tg3__set_default_image_callbacks(tg3_image_callbacks* image) {
 }
 
 #endif /* TINYGLTF3_ENABLE_STB_IMAGE */
-
 
 /* ======================================================================
  * Internal: Model Init Helper
